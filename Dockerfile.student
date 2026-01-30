@@ -1,0 +1,31 @@
+FROM jupyter/scipy-notebook:latest
+
+USER root
+
+# 安装基础工具
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    vim \
+    && rm -rf /var/lib/apt/lists/*
+
+USER ${NB_UID}
+
+# 安装教学相关扩展
+RUN pip install --no-cache-dir \
+    jupyterlab-language-pack-zh-CN \
+    nbgrader \
+    jupyterlab_execute_time
+
+# 安装AI辅助相关的库
+RUN pip install --no-cache-dir \
+    openai \
+    langchain \
+    requests
+
+# 配置中文环境
+ENV LANG=zh_CN.UTF-8 \
+    LC_ALL=zh_CN.UTF-8
+
+# 设置工作目录
+WORKDIR /home/jovyan/work

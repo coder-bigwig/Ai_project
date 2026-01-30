@@ -1,0 +1,257 @@
+# docker-compose.yml - 实训平台核心服务部署配置
+
+version: '3.8'
+
+services:
+  # ==================== 基础设施服务 ====================
+
+  # Nginx 反向代理
+  nginx:
+    image: nginx:alpine
+    container_name: training-nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - experiment-manager
+      - jupyterhub
+    networks:
+      - training-network
+    restart: always
+
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:15
+    container_name: training-postgres
+    environment:
+      POSTGRES_USER: jupyterhub
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      POSTGRES_DB: jupyterhub
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - training-network
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U jupyterhub" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis 缓存
+  redis:
+    image: redis:7-alpine
+    container_name: training-redis
+    networks:
+      - training-network
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ==================== 核心应用服务 ====================
+
+  # 前端应用
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: training-frontend
+    networks:
+      - training-network
+    restart: unless-stopped
+
+  # 实验管理后端
+  experiment-manager:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: training-experiment-manager
+    ports:
+      - "8001:8000"
+    networks:
+      - training-network
+    environment:
+      DATABASE_URL: postgresql://jupyterhub:${DB_PASSWORD:-changeme}@postgres/jupyterhub
+      REDIS_URL: redis://redis:6379/0
+      JUPYTER_TOKEN: training2024
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # JupyterHub
+  jupyterhub:
+    build:
+      context: ./jupyterhub
+      dockerfile: Dockerfile
+    container_name: training-jupyterhub
+    ports:
+      - "8003:8000"
+    volumes:
+      # 挂载 Docker socket 以便启动用户容器
+      - /var/run/docker.sock:/var/run/docker.sock
+      # JupyterHub 数据持久化
+      - jupyterhub-data:/srv/jupyterhub
+      # 挂载配置文件 (开发模式推荐)
+      - ./jupyterhub/jupyterhub_config.py:/srv/jupyterhub/jupyterhub_config.py
+    environment:
+      # 数据库配置
+      POSTGRES_DB: jupyterhub
+      POSTGRES_HOST: postgres
+      HUB_DB_URL: postgresql://jupyterhub:${DB_PASSWORD:-changeme}@postgres/jupyterhub
+      # Docker Spawner 配置
+      DOCKER_NETWORK_NAME: training-network
+      # JupyterLab 镜像名称
+      DOCKER_NOTEBOOK_IMAGE: training-lab:latest
+    networks:
+      - training-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      jupyterlab-shared:
+        condition: service_started
+    restart: unless-stopped
+
+  # 这是一个临时的构建服务，用于构建学生镜像
+  # 在 docker compose up 时会运行并退出
+  lab-image-builder:
+    build:
+      context: .
+      dockerfile: Dockerfile.student
+    image: training-lab:latest
+    container_name: training-lab-builder
+    command: echo "Student image built successfully"
+    networks:
+      - training-network
+
+  # 共享 JupyterLab 服务 - 所有用户访问同一个实例
+  jupyterlab-shared:
+    image: training-lab:latest
+    container_name: training-jupyterlab-shared
+    command: start-notebook.sh --ip=0.0.0.0 --NotebookApp.token='training2024' --NotebookApp.password='' --NotebookApp.allow_origin='*'
+    ports:
+      - "8888:8888"
+    volumes:
+      - shared-workspace:/home/jovyan/work
+      - shared-datasets:/home/jovyan/datasets
+      - course-materials:/home/jovyan/course
+    environment:
+      JUPYTER_ENABLE_LAB: '1'
+      GRANT_SUDO: 'no'
+    networks:
+      - training-network
+    depends_on:
+      lab-image-builder:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # 数据加载服务：将宿主机的实验文件同步到 Docker 卷
+  data-loader:
+    image: alpine:latest
+    volumes:
+      - ./experiments:/src
+      - course-materials:/dst
+    command: sh -c "cp -r /src/* /dst/ && echo 'Data sync complete'"
+    networks:
+      - training-network
+
+  # ==================== AI与智能服务 ====================
+
+  # Ollama 本地大模型
+  ollama:
+    image: ollama/ollama:latest
+    container_name: training-ollama
+    volumes:
+      - ollama-data:/root/.ollama
+    ports:
+      - "11434:11434"
+    networks:
+      - training-network
+    restart: unless-stopped
+
+  # AI 助手服务
+  ai-assistant:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: training-ai-assistant
+    ports:
+      - "8002:8000"
+    networks:
+      - training-network
+    environment:
+      AI_BACKEND: ${AI_BACKEND:-ollama}
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-codellama:7b}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  # ==================== 监控服务 ====================
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: training-prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - training-network
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: training-grafana
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana-dashboards:/var/lib/grafana/dashboards
+    ports:
+      - "3001:3000"
+    networks:
+      - training-network
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+# ==================== 网络配置 ====================
+
+networks:
+  training-network:
+    name: training-network
+    driver: bridge
+
+# ==================== 数据卷配置 ====================
+
+volumes:
+  postgres-data:
+    name: training-postgres-data
+  jupyterhub-data:
+    name: training-jupyterhub-data
+  ollama-data:
+    name: training-ollama-data
+  prometheus-data:
+    name: training-prometheus-data
+  grafana-data:
+    name: training-grafana-data
+  course-materials:
+    name: training-course-materials
+  shared-datasets:
+    name: training-shared-datasets
+  shared-workspace:
+    name: training-shared-workspace
