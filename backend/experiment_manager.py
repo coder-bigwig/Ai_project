@@ -13,6 +13,19 @@ app = FastAPI(title="实训平台 - 实验管理API")
 
 JUPYTER_TOKEN = os.getenv("JUPYTER_TOKEN", "training2024")
 
+# 教师账号列表
+TEACHER_ACCOUNTS = [
+    'teacher_001',
+    'teacher_002',
+    'teacher_003',
+    'teacher_004',
+    'teacher_005'
+]
+
+def is_teacher(username: str) -> bool:
+    """判断用户是否为教师"""
+    return username in TEACHER_ACCOUNTS
+
 # CORS配置
 app.add_middleware(
     CORSMiddleware,
@@ -46,6 +59,7 @@ class Experiment(BaseModel):
     deadline: Optional[datetime] = None
     created_at: datetime = None
     created_by: str
+    published: bool = True  # 是否发布给学生
     
     class Config:
         json_encoders = {
@@ -90,7 +104,8 @@ async def startup_event():
                 "notebook_path": "course/python-basics.ipynb",
                 "resources": {"cpu": 1.0, "memory": "1G", "storage": "512M"},
                 "deadline": datetime.now() + timedelta(days=7),
-                "created_by": "admin"
+                "created_by": "teacher_001",
+                "published": True
             },
             {
                 "title": "Pandas 数据分析入门",
@@ -100,7 +115,8 @@ async def startup_event():
                 "notebook_path": "course/pandas-intro.ipynb",
                 "resources": {"cpu": 1.0, "memory": "2G", "storage": "1G"},
                 "deadline": datetime.now() + timedelta(days=14),
-                "created_by": "admin"
+                "created_by": "teacher_001",
+                "published": True
             },
             {
                 "title": "机器学习模型训练实战",
@@ -110,7 +126,8 @@ async def startup_event():
                 "notebook_path": "course/ml-training.ipynb",
                 "resources": {"cpu": 2.0, "memory": "4G", "storage": "2G"},
                 "deadline": datetime.now() + timedelta(days=21),
-                "created_by": "admin"
+                "created_by": "teacher_001",
+                "published": True
             }
         ]
         
@@ -119,13 +136,23 @@ async def startup_event():
             exp.id = str(uuid.uuid4())
             exp.created_at = datetime.now()
             experiments_db[exp.id] = exp
-            print(f"已创建实验: {exp.title}")
+            print(f"已创建实验: {exp.title} (发布状态: {exp.published})")
 
 # ==================== API端点 ====================
 
 @app.get("/")
 def root():
     return {"message": "实训平台 API", "version": "1.0.0"}
+
+# ---------- 角色验证 ----------
+
+@app.get("/api/check-role")
+async def check_role(username: str):
+    """检查用户角色"""
+    return {
+        "username": username,
+        "role": "teacher" if is_teacher(username) else "student"
+    }
 
 # ---------- 实验管理 ----------
 
@@ -140,10 +167,15 @@ async def create_experiment(experiment: Experiment):
 @app.get("/api/experiments", response_model=List[Experiment])
 async def list_experiments(
     difficulty: Optional[DifficultyLevel] = None,
-    tag: Optional[str] = None
+    tag: Optional[str] = None,
+    username: Optional[str] = None
 ):
     """获取实验列表（支持筛选）"""
-    experiments = list(experiments_db.values())
+    experiments = list (experiments_db.values())
+    
+    # 学生只能看到已发布的实验
+    if username and not is_teacher(username):
+        experiments = [e for e in experiments if e.published]
     
     if difficulty:
         experiments = [e for e in experiments if e.difficulty == difficulty]
@@ -241,6 +273,37 @@ async def get_student_experiment_detail(student_exp_id: str):
         raise HTTPException(status_code=404, detail="学生实验记录不存在")
     return student_experiments_db[student_exp_id]
 
+@app.get("/api/student/courses-with-status")
+async def get_student_courses_with_status(student_id: str):
+    """获取学生的课程列表及完成状态"""
+    # 获取所有已发布的课程
+    published_courses = [
+        exp for exp in experiments_db.values()
+        if exp.published
+    ]
+    
+    # 获取该学生的所有实验记录
+    student_records = {
+        exp.experiment_id: exp
+        for exp in student_experiments_db.values()
+        if exp.student_id == student_id
+    }
+    
+    # 组合数据
+    courses_with_status = []
+    for course in published_courses:
+        record = student_records.get(course.id)
+        courses_with_status.append({
+            "course": course,
+            "status": record.status.value if record else "未开始",
+            "start_time": record.start_time if record else None,
+            "submit_time": record.submit_time if record else None,
+            "score": record.score if record else None,
+            "student_exp_id": record.id if record else None
+        })
+    
+    return courses_with_status
+
 # ---------- 教师功能 ----------
 
 @app.get("/api/teacher/experiments/{experiment_id}/submissions")
@@ -274,6 +337,66 @@ async def grade_experiment(
         "message": "评分成功",
         "score": score
     }
+
+# ---------- 教师课程管理 ----------
+
+@app.get("/api/teacher/courses")
+async def get_teacher_courses(teacher_username: str):
+    """获取教师创建的所有课程"""
+    if not is_teacher(teacher_username):
+        raise HTTPException(status_code=403, detail="权限不足")
+    
+    courses = [
+        exp for exp in experiments_db.values()
+        if exp.created_by == teacher_username
+    ]
+    return courses
+
+@app.patch("/api/teacher/courses/{course_id}/publish")
+async def toggle_course_publish(course_id: str, teacher_username: str, published: bool):
+    """发布/取消发布课程"""
+    if not is_teacher(teacher_username):
+        raise HTTPException(status_code=403, detail="权限不足")
+    
+    if course_id not in experiments_db:
+        raise HTTPException(status_code=404, detail="课程不存在")
+    
+    course = experiments_db[course_id]
+    if course.created_by != teacher_username:
+        raise HTTPException(status_code=403, detail="只能管理自己创建的课程")
+    
+    course.published = published
+    return {
+        "message": f"课程已{'发布' if published else '取消发布'}",
+        "published": published
+    }
+
+@app.get("/api/teacher/progress")
+async def get_all_student_progress(teacher_username: str):
+    """查看所有学生进度"""
+    if not is_teacher(teacher_username):
+        raise HTTPException(status_code=403, detail="权限不足")
+    
+    # 获取该教师所有课程的学生实验记录
+    teacher_courses = [
+        exp.id for exp in experiments_db.values()
+        if exp.created_by == teacher_username
+    ]
+    
+    progress = [
+        {
+            "student_id": exp.student_id,
+            "experiment_id": exp.experiment_id,
+            "status": exp.status.value,
+            "start_time": exp.start_time,
+            "submit_time": exp.submit_time,
+            "score": exp.score
+        }
+        for exp in student_experiments_db.values()
+        if exp.experiment_id in teacher_courses
+    ]
+    
+    return progress
 
 @app.get("/api/teacher/statistics")
 async def get_statistics():

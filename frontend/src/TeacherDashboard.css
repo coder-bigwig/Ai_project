@@ -1,0 +1,251 @@
+/* TeacherDashboard.css */
+
+.teacher-dashboard {
+    min-height: 100vh;
+    background: #f5f7fa;
+}
+
+.teacher-header {
+    background: white;
+    padding: 20px 40px;
+    border-bottom: 1px solid #e8ecf1;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.teacher-header h1 {
+    font-size: 24px;
+    color: #303133;
+    margin: 0;
+}
+
+.teacher-info {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+}
+
+.teacher-info button {
+    padding: 8px 16px;
+    background: #f5f7fa;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.teacher-nav {
+    background: white;
+    padding: 0 40px;
+    display: flex;
+    gap: 8px;
+    border-bottom: 1px solid #e8ecf1;
+}
+
+.teacher-nav button {
+    padding: 16px 24px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    font-size: 14px;
+    color: #606266;
+    transition: all 0.2s;
+}
+
+.teacher-nav button.active {
+    color: #409eff;
+    border-bottom-color: #409eff;
+}
+
+.teacher-main {
+    padding: 24px 40px;
+}
+
+.course-management,
+.student-progress {
+    background: white;
+    padding: 24px;
+    border-radius: 8px;
+}
+
+.course-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+}
+
+.course-header h2 {
+    font-size: 18px;
+    margin: 0;
+}
+
+.create-btn {
+    padding: 10px 20px;
+    background: #409eff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.create-btn:hover {
+    background: #66b1ff;
+}
+
+.course-list table,
+.student-progress table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.course-list th,
+.student-progress th {
+    padding: 12px;
+    text-align: left;
+    background: #f5f7fa;
+    font-weight: 500;
+    font-size: 14px;
+    color: #606266;
+}
+
+.course-list td,
+.student-progress td {
+    padding: 12px;
+    border-top: 1px solid #ebeef5;
+    font-size: 14px;
+    color: #303133;
+}
+
+.status {
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+}
+
+.status.published {
+    background: #e1f3d8;
+    color: #67c23a;
+}
+
+.status.draft {
+    background: #f4f4f5;
+    color: #909399;
+}
+
+.course-list td button,
+.student-progress td button {
+    margin-right: 8px;
+    padding: 6px 12px;
+    background: #ecf5ff;
+    color: #409eff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.course-list td button.danger {
+    background: #fef0f0;
+    color: #f56c6c;
+}
+
+.empty,
+.loading {
+    text-align: center;
+    padding: 40px;
+    color: #909399;
+}
+
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 8px;
+    padding: 24px;
+    max-width: 500px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+.modal-content h2 {
+    margin-top: 0;
+    margin-bottom: 20px;
+    font-size: 20px;
+}
+
+.form-group {
+    margin-bottom: 16px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 14px;
+    color: #606266;
+    font-weight: 500;
+}
+
+.form-group input,
+.form-group textarea,
+.form-group select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #dcdfe6;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.form-group textarea {
+    min-height: 80px;
+    resize: vertical;
+}
+
+.form-group.checkbox label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.form-group.checkbox input {
+    width: auto;
+}
+
+.form-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    margin-top: 24px;
+}
+
+.form-actions button {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.form-actions button[type="button"] {
+    background: #f5f7fa;
+    color: #606266;
+}
+
+.form-actions button[type="submit"] {
+    background: #409eff;
+    color: white;
+}
